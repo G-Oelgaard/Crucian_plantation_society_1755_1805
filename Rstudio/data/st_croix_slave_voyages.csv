@@ -1,0 +1,109 @@
+Year of arrival at port of disembarkation,Voyage ID,Vessel name,Flag of vessel,Voyage itinerary imputed principal place of slave purchase (mjbyptimp) ,Voyage itinerary imputed principal port of slave disembarkation (mjslptimp) place,Voyage itinerary first place of slave landing (sla1port) ,Voyage itinerary second place of slave landing (adpsale1) ,Total disembarked,Captain's name
+1771,17768,Venus,Great Britain,"Windward Coast, place unspecified",St. Croix,"St. Kitts, port unspecified",St. Croix,174,"Lewis, Thomas"
+1767,36351,Royal Charlotte,U.S.A.,Anomabu,St. Croix,St. Croix,"Rhode Island, port unspecified",95,"Taylor, Wm<br/> Pinnigar, William"
+1798,11408,,,,St. Croix,St. Croix,,291,Elsler
+1797,26061,Mariella Huldah,U.S.A.,"Africa, port unspecified",St. Croix,St. Croix,,126,Clough
+1802,26063,Horatio,U.S.A.,"Africa, port unspecified",St. Croix,,,126,
+1758,27051,Hulst,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,208,Dickington
+1760,24507,Cron Printz Christian,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,166,"Anker, Jens"
+1760,24513,Argo,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,208,Thompson
+1769,24663,Dove,Great Britain,Iles de Los,St. Croix,St. Croix,,96,Hudson
+1770,24666,Eleonora,Denmark / Baltic,"Gold Coast, port unspecified",St. Croix,St. Croix,,176,Thadsen
+1759,25059,Fanny,Great Britain,Cape Coast Castle,St. Croix,St. Croix,,146,"McNamara, Wm"
+1766,25239,Neptune,U.S.A.,"Africa, port unspecified",St. Croix,St. Croix,,126,"Gwinn, Peter (a) Gwyn"
+1765,25354,Nancy,U.S.A.,"Africa, port unspecified",St. Croix,,,49,Perry
+1796,25357,Lady Walterstorff,U.S.A.,"Africa, port unspecified",St. Croix,St. Croix,,122,
+1786,35042,Christiansborg,Denmark / Baltic,"Gold Coast, port unspecified",St. Croix,St. Croix,,406,"Berg, Jens Jensen"
+1789,35049,Fredensborg,Denmark / Baltic,Danish Gold Coast,St. Croix,St. Croix,,287,Berg
+1762,35166,Cron Printzens Ønske,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,299,
+1759,35173,Jomfru Catharina,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,190,
+1759,35174,St Brigitte (a) St Birgitte,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,293,
+1760,35175,Debora(h),Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,197,"Mørch, B (a) Mørck, B"
+1760,35176,Friderichs Haab,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,324,"Hiørring, L"
+1761,35177,Jaegersborg,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,287,
+1768,35180,Eleonora,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,159,Thadsen
+1768,35181,Fredensborg,Denmark / Baltic,"Gold Coast, port unspecified",St. Croix,St. Croix,,235,"Kionig, Espen<br/> Ferentz, Johan Frantzen"
+1793,35194,Gregers Juul,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,311,Hammer
+1802,35200,Martha Magdalene,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,125,Peterson
+1794,35202,Hertug Ferdinand,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,266,
+1795,35203,Gregers Juul,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,266,Scandorph
+1796,35204,Jomfrue Anna Maria,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,292,
+1796,35221,Nancy,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,100,
+1798,35232,Kongen af Asante,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,309,
+1797,35233,Bien,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,57,
+1799,35234,Norge,Denmark / Baltic,Gorée,St. Croix,St. Croix,,35,
+1800,35245,Kongen af Asante,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,143,
+1781,35251,Eleonora,Denmark / Baltic,Elmina,St. Croix,St. Croix,,138,Fingast
+1800,35275,Robust,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,143,
+1802,35279,Bimbia,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,143,
+1802,35281,Kongen af Asante,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,240,
+1803,35286,Kronprinc Marie,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,369,
+1803,35308,Experiment,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,143,
+1806,35317,Nicoline,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,143,
+1759,35335,,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,244,"Daninka, Manuel"
+1760,35336,,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,214,"Thumbson, Alex"
+1761,35338,St Thomas,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,285,
+1762,35339,Aletta,Denmark / Baltic,"Africa, port unspecified",St. Croix,St. Croix,,403,
+1764,35340,St  Brigitte (a) St Birgitte,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,161,"Selvaag, Ole (a) Selvig, Ole"
+1765,35342,Aletta,Denmark / Baltic,Sierra Leone estuary,St. Croix,St. Croix,,255,
+1761,35355,St Brigitte (a) St Birgitte,Denmark / Baltic,Christiansborg,St. Croix,St. Croix,,233,"Eriksen, Ole"
+1784,35365,Enigheden,Denmark / Baltic,Sierra Leone estuary,St. Croix,St. Croix,,215,
+1797,82579,Mary,Great Britain,Cameroons,St. Croix,St. Croix,,244,"Hunter, James"
+1802,82667,May,Great Britain,New Calabar,St. Croix,St. Croix,,229,"Callan, Patrick"
+1796,82727,Mersey,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,329,"Jones, Robert"
+1802,82868,Nanny,Great Britain,Cape Mount (Cape Grand Mount),St. Croix,St. Croix,,53,"Dillon, Lawrence"
+1799,82920,Neptune,Great Britain,Calabar,St. Croix,St. Croix,,343,"Williams, Joseph"
+1795,83084,Philip Stephens,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,328,"Jones, Robert"
+1797,83085,Philip Stephens,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,193,"Thornborrow, John"
+1802,83088,Phoebe,Great Britain,Calabar,St. Croix,St. Croix,,197,"Williams, William"
+1802,83155,Port au Prince,Great Britain,Cabinda,St. Croix,St. Croix,,380,"Blackie, William<br/> Hall, James"
+1802,83218,Princess Amelia,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,279,"Mullion, Thomas"
+1802,83427,Royal Edward,Great Britain,Calabar,St. Croix,St. Croix,,280,"Griffiths, John"
+1797,83464,Saint Phillip,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,301,"Jones, John"
+1793,83541,Seaflower,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,195,"Garnett, John<br/> Curry, Gilbert"
+1795,80896,Concord,Great Britain,Bance/Bunce Island,St. Croix,St. Croix,,328,Merrick
+1796,81011,Diana,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,240,"Irwin, James"
+1797,81100,Eagle,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,357,"Wright, Reuben"
+1797,81198,Eliza Jane,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,164,"Hayward, Daniel"
+1798,81298,Enterprize,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,347,"Heron, John"
+1799,81416,Fanny,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,360,"Irwin, James"
+1803,81569,General Abercrombie,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,339,"Booth, Henry"
+1798,81683,Gudgeon,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,341,"Gillilan, Charles<br/> Sowerby, John"
+1798,81704,Hannah,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,324,"Stringer, William"
+1799,81705,Hannah,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,320,"Good, James"
+1799,81759,Hawke,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,73,"Stott, Walter"
+1799,81897,Indian,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,336,"Pearson, Richard"
+1797,81958,James,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,335,"Rives, Thomas"
+1774,78145,Venus,Great Britain,Anomabu,St. Croix,St. Croix,,197,"Goodwin, Thomas"
+1801,80012,Acasto,Great Britain,Loango,St. Croix,St. Croix,,279,"Carlile, Ludwick"
+1797,80016,Achilles,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,327,"Bunnell, John"
+1799,80249,Ann,Great Britain,Cameroons,St. Croix,St. Croix,,277,"Muir, John<br/> Sillars, John"
+1796,80269,Ann,Great Britain,Bonny,St. Croix,St. Croix,,328,"Wright, Reuben"
+1799,80412,Backhouse,Great Britain,Anomabu,St. Croix,St. Croix,,257,"Harvey, John<br/> Crooker, Thomas"
+1795,80471,Bell,Great Britain,Calabar,St. Croix,St. Croix,,348,"Richard, John"
+1796,80497,Bess,Great Britain,Congo River,St. Croix,St. Croix,,160,"Mills, Michael"
+1796,80520,Betsey,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,268,"Armstrong, David<br/> Mosson, Edward"
+1798,80522,Betsey,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,311,"Mosson, Edward"
+1797,80669,Brooks,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,384,"Richards, John"
+1797,83642,Sundet,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,299,"Maxwell, William"
+1799,83643,Sundet,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,299,"Maxwell, William"
+1800,83644,Sundet,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,328,"Walker, John"
+1797,83663,Swallow,Great Britain,Cape Coast Castle,St. Croix,St. Croix,,98,"Andow, Richard"
+1802,83704,Tamer,Great Britain,"West Central Africa and St. Helena, port unspecified",St. Croix,St. Croix,,375,"May, Vincent"
+1793,83817,Tom,Great Britain,Congo River,St. Croix,St. Croix,,216,"Brine, John"
+1797,83826,Tonyn,Great Britain,Calabar,St. Croix,St. Croix,,314,"Smith, Thomas<br/> Conning"
+1768,75493,Fly,Great Britain,Cape Mount (Cape Grand Mount),St. Croix,St. Croix,,174,"Taylor, Alexander"
+1760,76259,Truman,Great Britain,Gambia,St. Croix,St. Croix,,150,Forrest
+1758,76981,Trueman,Great Britain,Gambia,St. Croix,St. Croix,,200,"Urquhart, Alexander"
+1758,77247,Enterprize,Great Britain,Gambia,St. Croix,St. Croix,,65,"Forrest, Robert"
+1766,77822,Squirrel,Great Britain,"Africa, port unspecified",St. Croix,St. Croix,,127,"Fisher, Thomas"
+1776,91839,Dreadnought,Great Britain,Calabar,St. Croix,St. Croix,,130,"Cooper, John"
+1776,92517,Bostock,Great Britain,Bonny,St. Croix,St. Croix,,328,"Briggs, James"
+1775,92564,Traffick,Great Britain,"Windward Coast, place unspecified",St. Croix,St. Croix,,288,"Blower, Thomas"
+1802,70011,Volta,U.S.A.,"Africa, port unspecified",St. Croix,St. Croix,,126,Slocum
+1760,70021,Cassada Garden,U.S.A.,"Africa, port unspecified",St. Croix,St. Croix,,3,Taylor Thom
+1760,36232,Marygold,U.S.A.,Anomabu,St. Croix,St. Croix,,112,"Taylor, Thomas Teackle"
+1762,36259,Molly,U.S.A.,Cape Coast Castle,St. Croix,St. Croix,,51,"Allen, John"
+1767,36335,Nelly,U.S.A.,"Gold Coast, port unspecified",St. Croix,St. Croix,,113,"Bull, Nathan"
+1762,90874,Eadith,Great Britain,Gambia,St. Croix,St. Croix,,131,"Jordan, Thomas<br/> Rabine"
+1770,91579,Friendship,Great Britain,Sierra Leone estuary,St. Croix,St. Croix,,288,"Saul, William"

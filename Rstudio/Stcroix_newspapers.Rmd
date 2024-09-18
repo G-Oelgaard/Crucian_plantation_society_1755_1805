@@ -1,0 +1,127 @@
+---
+title: "St. Croix newspapers"
+author: "Gustav Ølgaard"
+date: "7/5/2024"
+output: html_document
+---
+
+The purpose of this markdown is to examine the newspapers "St. Croix Avis" and "Royal Danish American Gazette" in the time period 1754-1804. For now the main aspect that the markdown will examine is what language the articles of the newspapers are written in. Is danish or english languaged articles the most prominent?
+
+# Packages and data
+
+To do this we first need to install and activate some packages
+```{r}
+#install.packages("tidyverse")
+#install.packages("lubridate")
+#install.packages("cld2")
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(cld2) # Googles Compact language detector 2
+```
+
+To detect languages, Googles Compact language detector 2 will be used. A Compact detector 3 does exist, but for reasons unknown, i have not been able to correctly install it using R.
+
+Now we can fetch our data. This dataset was created using The Danish Royal Libary's experimental Mediestream (database of danish newspapers) API. All published newspaper articles with the family ID "stcroixavisdvi" in the time period 1754-1804 are included in this dataset - in total 31329 articles.
+```{r}
+stcroixavisdvi <- read_csv("data/mediestream_stcroixavisdvi_1754_1804.csv")
+```
+
+# Detect languages
+With our packages installed and our data ready, we can now begin to detect the languages of the articles in question.
+
+```{r}
+stcroixavisdvi <- stcroixavisdvi %>% 
+  mutate(language = detect_language(text = fulltext_org, lang_code = F))
+```
+
+## By article
+Lets see what languages that dominates the articles
+```{r}
+stcroixavisdvi %>%
+  count(language, sort = T) %>% 
+  mutate(percent =  round(n / 31329 * 100,2))
+
+```
+
+So the Complex Langauge Detector estimates that ca. 78 % of all articles are in English! 12.6 % are unknown and only 8.2 % are in Danish! 284 articles are noted as Norwegian, however, quickly examining a few of these, it becomes clear that most are in fact danish articles incorrectly labelled. Assuming most are in fact danish articles, we can quickly correct this error. For ease of reading, we should also set all other languages to "other".
+
+```{r}
+languages <- c("DANISH", "ENGLISH", NA)
+
+stcroixavisdvi <- stcroixavisdvi %>% 
+  mutate(language_fixed = ifelse(language == "NORWEGIAN", "DANISH", language)) %>% # Set norwegian articles to danish
+  mutate(language_fixed = ifelse(!language_fixed %in% languages, "OTHER", language_fixed))
+
+stcroixavisdvi %>%
+  count(language_fixed, sort = T) %>% 
+  mutate(percent =  round(n / 31329 * 100,2))
+```
+This brings the total percentage of danish newspapers up  to ca. 9 percent. Still only a fraction when compared to English articles.
+
+A quick plot should allow us to see if there was any development in how language was used in the newspapers.
+```{r}
+stcroixavisdvi %>%
+  mutate(year = year(ymd_hms(timestamp))) %>% # extract year
+  group_by(year) %>% 
+  count(language_fixed) %>%
+  ggplot() +
+  geom_line(aes(x = year, y = n, color = language_fixed)) +
+  geom_point(aes(x = year, y = n, color = language_fixed)) +
+  scale_x_continuous(name = "Year", breaks = seq(1770,1804,by=5), minor_breaks = seq(1754,1804,by=1)) +
+  labs(title = "Language of articles in newspapers from St. Croix, 1770-1804", y = "Number of articles", color = "Article Language")
+
+ggsave("plots/Newspaper_article_language.pdf", height= 6, width = 10)
+```
+
+## By total characters
+### Using whole articles
+This of course only takes into account whole articles. It may be the case that smaller articles - such as adverts or notices - were in English, while larger public proclamations were in danish, meaning the gap between language may be smaller than previously shown. Let us examine this. 
+
+To do this we simply count the number of characters in the article full_text string. We do this using base R's nchar() function and mutate.
+```{r}
+stcroixavisdvi <- stcroixavisdvi %>% 
+  mutate(article_length = nchar(fulltext_org))
+```
+
+Now we count the amount of characters in total and by language. This should allow us to estimate how much the different language are actually used in the Crucian newspapers.
+```{r}
+total_newspaper_characters <- sum(stcroixavisdvi$article_length, na.rm = T)
+
+stcroixavisdvi %>%
+  group_by(language_fixed) %>% 
+  summarise(language_length = sum(article_length, na.rm = T)) %>% 
+  arrange(desc(language_length)) %>% 
+  mutate(percent =  round(language_length / total_newspaper_characters * 100,2))
+
+?unnest_tokens
+```
+
+This increases the share of danish to 11.44 % - ca. 2 % more than when just viewing articles - but still showcases that the danish language was not the dominant language of the Crucian newspapers "St. Croix Avis" and "Royal Danish American Gazette". As both newspapers are registered under the same familyId, it is not possible to examine if the two newspapers had any real difference between them.
+
+# Using unnested sentences
+Some articles may be multi-lingual, and it might be a good idea to do the above analysis with unnested sentences.
+```{r}
+stcroixavisdvi_unnested <- stcroixavisdvi %>% 
+  unnest_tokens(sentence, fulltext_org, token = "sentences") %>% # Spilitting into sentences
+  mutate(language = detect_language(text = sentence, lang_code = F)) %>%# detecting languages
+  mutate(language_fixed = ifelse(language == "NORWEGIAN", "DANISH", language)) %>% # Set norwegian articles to danish
+  mutate(language_fixed = ifelse(!language_fixed %in% languages, "OTHER", language_fixed)) # Chaning non-english and non-danish sentences to "Other"
+```
+
+Now we can replicate the pipeline above.
+
+```{r}
+stcroixavisdvi_unnested <- stcroixavisdvi_unnested %>% 
+  mutate(sentence_length = nchar(sentence))
+
+stcroixavisdvi_unnested %>%
+  group_by(language_fixed) %>% 
+  summarise(language_length = sum(sentence_length, na.rm = T)) %>% 
+  arrange(desc(language_length)) %>% 
+  mutate(percent =  round(language_length / total_newspaper_characters * 100,2))
+```
+
+This lowers the amount of English only slightly, but the danish language down to 7.5 %. At the same time the amount of NA and Other languages is increased considerably. A probable explanation is again OCR errors making it hard to distinguish what language a sentence is. Evidently most of these errors could be found in danish articles.

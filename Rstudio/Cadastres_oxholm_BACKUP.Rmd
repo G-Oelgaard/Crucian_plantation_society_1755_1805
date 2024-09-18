@@ -1,0 +1,1705 @@
+---
+title: "St. Croix Cadastres"
+author: "Gustav Ølgaard"
+date: "3/18/2024"
+output: html_document
+---
+
+# Installing and activating packages
+
+```{r}
+#install.packages("tidyverse")
+#install.packages("sf")
+#install.packages("corrplot")
+#install.packages('googlesheets4')
+#install.packages("eks")
+#install.packages("ggthemes")
+```
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(sf)
+library(corrplot)
+library(googlesheets4)
+library(eks)
+library(colorspace)
+library(ggthemes)
+```
+
+*Tidyverse:* for general R usability and visualisation.
+*sf:* for working with shapefiles.
+*corrplot:* for making corrolation graphs
+*googlesheets4:* for downloading data in google sheets.
+*eks:* needed for kernel density mapping.
+*colorspace:* used to improve ggplot colours.
+*ggthemes:* used for nive ggplot themes.
+
+# Loading data
+This part of the code loads the transskribed cadastre ledgers and the cadastre shape file.
+
+*Cadastre and census data*
+```{r}
+census_1804 <- read_sheet("https://docs.google.com/spreadsheets/d/1sItBSvmMGL69odL6_2XfMSuG1W7eVU5Y9Ms9GAVE5Rk/edit?usp=sharing", sheet = 5)
+census_1804_total <- read_sheet("https://docs.google.com/spreadsheets/d/1sItBSvmMGL69odL6_2XfMSuG1W7eVU5Y9Ms9GAVE5Rk/edit?usp=sharing", sheet = 6)
+cadastre_1800 <- read_sheet("https://docs.google.com/spreadsheets/d/1sItBSvmMGL69odL6_2XfMSuG1W7eVU5Y9Ms9GAVE5Rk/edit?usp=sharing", sheet = 2)
+census_1792 <- read_sheet("https://docs.google.com/spreadsheets/d/1sItBSvmMGL69odL6_2XfMSuG1W7eVU5Y9Ms9GAVE5Rk/edit?usp=sharing", sheet = 3)
+census_1792_total <- read_sheet("https://docs.google.com/spreadsheets/d/1sItBSvmMGL69odL6_2XfMSuG1W7eVU5Y9Ms9GAVE5Rk/edit?usp=sharing", sheet = 4)
+quadrant_data <- read_sheet("https://docs.google.com/spreadsheets/d/1sItBSvmMGL69odL6_2XfMSuG1W7eVU5Y9Ms9GAVE5Rk/edit?usp=sharing", sheet = 7)
+
+cadastre_1800 <- cadastre_1800 %>% # quick cleanup of the data to remove any data without an owner
+  filter(!is.na(Main_person))
+```
+
+Quick check of the data
+```{r}
+head(cadastre_1800)
+```
+
+
+*Cadastre_shapefiles*
+For now we will only load whole cadastre and not split ones. This may be subject to change in later versions of the code.
+```{r}
+cadastre_oxholm_1799 <- st_read("../QGIS/Data/matrikler_whole.shp") # Whole cadastres
+split_cadastre_oxholm_1799 <- st_read("../QGIS/Data/Matrikler.shp") # Split cadastres
+horsemills_oxholm_1799 <- st_read("../QGIS/Data/Horsemills.shp") # Horsemills
+windmills_oxholm_1799 <- st_read("../QGIS/Data/Windmills.shp") # Windmills
+installations_oxholm_1799 <- st_read("../QGIS/Data/Installations_Oxholm_CRS32161.shp") # Government installations
+roads_oxholm_1799 <- st_read("../QGIS/Data/Roads_CRS32161.shp") # Roads
+plantations_1792 <- st_read("../QGIS/Data/Plantations_1792.shp") # 1792 plantations based on Oxholms map, Tax Rolls and the 1792 census.
+```
+
+*Plotting shape files*
+It would also be nice to have a shapefile of each of the cadastres. So let us create that
+```{r}
+quadrants_cadastre_oxholm_1799 <- split_cadastre_oxholm_1799 %>% 
+  group_by(Kvadrant) %>% 
+  summarize(geometry = st_union(geometry)) %>% 
+  rename(quadrant = Kvadrant)
+
+St_Croix <- split_cadastre_oxholm_1799 %>% 
+  summarize(geometry = st_union(geometry))
+```
+
+Quick check of the shape file. First the cadastres - whole and split...
+```{r}
+ggplot(cadastre_oxholm_1799) + #1799 whole cadastres
+  geom_sf()
+
+ggplot(split_cadastre_oxholm_1799) + #1799 split cadastres (aka. as shown on original map)
+  geom_sf()
+
+ggplot(quadrants_cadastre_oxholm_1799) + #1799 quadrants
+  geom_sf(aes(fill=quadrant))
+
+ggplot(St_Croix) + #whole island
+  geom_sf()
+```
+
+... now for a map with all our other spatial data.
+```{r}
+ggplot(quadrants_cadastre_oxholm_1799) +
+  geom_sf() +
+  geom_sf(data = roads_oxholm_1799, color = "black") +
+  geom_sf(data = horsemills_oxholm_1799, color = "blue", size=1) +
+  geom_sf(data = windmills_oxholm_1799, color = "orange", size=1) +
+  geom_sf(data = installations_oxholm_1799, color = "red", size=1)
+```
+
+*Slave voyage data*
+```{r}
+slave_voyages <- read_csv("data/st_croix_slave_voyages.csv") # This is only confirmed slave voyages to st. croix
+slave_voyages_DWI <- read_csv("data/danish_WI_slave_voyages.csv") # This also includes voyages to unspecified danish WI
+```
+
+
+# Combining data
+With the shapefile and cadastre ledger data loaded, let us combine the two. As is discussed in the main paper connected to this code, this is not a straightforward procedure. When the ledger was originally written, multiple people could own part of the same cadastre, meaning that the shapefile we now have showing only non-split cadastres is not 100% perfect. A split shapefile also exists, however the data does not originally indicate who owns which part of the cadastre except by the size of the area owned. That data therefore needs to be augmented by either further manual modifications or using code.
+
+However, for now we will proceed with non-split cadastras and figure. Let us start by assigning a unqiue cadastre identifier to our ledger data. This identifier is a three letter code followed by the cadastres number. This way we know exactly what cadastre in what quadrant is refered to. These identifiers can then be used to match the shapefile data created in Qgis.
+
+```{r}
+# Assigning 3-letter quadrant identifier
+quadrants_id <- c(
+  'Oost_Ende_A' = 'OEA',
+  'Oost_Ende_B' = 'OEB',
+  'Compagniets_Kvadrant' = 'COM',
+  'Dronningens_Kvadrant' = 'DRO',
+  'Kongens_Kvadrant' = 'KON',
+  'Prindsens_Kvadrant' = 'PRI',
+  'West_Ende' = 'WTE',
+  'Nord_Side_A' = 'NSA',
+  'Nord_Side_B' = 'NSB'
+)
+```
+
+```{r}
+# Assigning unique identifiers.
+cadastre_1800_modified <- cadastre_1800 %>% 
+  mutate(unique_id = paste0(quadrants_id[cadastre_1800$Quadrant],"_",cadastre_1800$Matrikel_or_number))
+
+# CHANGE THIS CODE LATER. NOT GREAT TO HAVE MANUAL EXCEPTIONS
+cadastre_1800_modified[61:62, "unique_id"] = "PRC" # Store Princesse identifier
+cadastre_1800_modified[58, "unique_id"] = "COM_35" # Bellevue identifier. Written as 34 in ledger, but 35 on oxholm map.
+```
+
+Now we should be able to combine the data. We will use a simple left_join
+```{r}
+# Combining the data
+cadastre_1800_combined <- left_join(cadastre_1800_modified, cadastre_oxholm_1799) %>% 
+  select(!"Kvadrant") %>% 
+  select(!"matrikel")
+```
+
+To combine the census data we need to rename the quadrant column and filter out the "total" row before we can join it with the geometry data
+```{r}
+census_1804_total <- census_1804_total %>% 
+  filter(quadrant != "Total")
+
+census_1804_quadrants <- census_1804_total %>% 
+  left_join(quadrants_cadastre_oxholm_1799) %>% 
+  st_as_sf()
+```
+
+We should also combine our quadrants shapefile with the yearly data from the cadastre ledgers.
+```{r}
+quadrant_data_sf <- quadrant_data %>% 
+  left_join(quadrants_cadastre_oxholm_1799) %>% 
+  st_as_sf()
+```
+
+# Saving combined dataframes for use in QGIS
+Sometimes it is easier to visaulise and analyse things in R and sometimes it is easier in QGIS. Let us now save our combined data so we can use it both places.
+
+```{r}
+#st_write(quadrant_data_sf, "output_data/quadrants_sf.gpkg") #saving as geopackage
+```
+
+# Correlation between data
+It would be interesting to see if there is correlation between different columns in the census data fron 1804. First we need to calculate the correlation data using cor(). We will also need to remove our quadrant and year data as they are non-numeric.
+
+```{r}
+census_1804_correlation <- census_1804_total %>% 
+  select(!quadrant) %>%
+  select(!year)
+
+census_1804_correlation[is.na(census_1804_correlation)] <- 0 #Setting NA's to zero to correctly get correlation data.
+
+census_1804_correlation <- census_1804_correlation %>% 
+    cor()
+```
+
+Now we should be able to graph it:
+```{r}
+corrplot(census_1804_correlation, method="color", tl.pos='n', title="Correlation, census 1804")
+```
+
+Well that was not very helpful. There could be a couple of reasons why. We might need filter our data a bit more, we could need more not data from other sources (such as the soil type), or we could need to normalize our data to match the total amount of people in the quadrant. Of course more people in a region would mean more deaths or people of religion.
+
+What happens if we do it for the 1792 data
+```{r}
+census_1792_correlation <- census_1792_total %>% 
+  select(!quadrant) %>%
+  select(!year) %>% 
+  select(!link)
+
+census_1792_correlation[is.na(census_1792_correlation)] <- 0 #Setting NA's to zero to correctly get correlation data.
+
+census_1792_correlation <- census_1792_correlation %>% 
+    cor()
+```
+
+Now we should be able to graph it:
+```{r}
+corrplot(census_1792_correlation, method="color", tl.pos='n', title="Correlation, census 1792")
+```
+
+# Change over time
+## Total population growth
+Let us examine how the population changes over time. For this we will use the quadrant totals from 1758-1808
+
+First let us look at straight up population. To do this we combine the totals...
+```{r}
+# Population totals by year dataframe
+population_total <- quadrant_data %>% 
+  group_by(year) %>% 
+  summarise(total = sum(total), white_total = sum(white_total, na.rm=TRUE), enslaved_total = sum(enslaved_total, na.rm=TRUE), free_black = sum(free_black, na.rm=TRUE)) %>%  # creating a total column + total for whites, enslaved and freemen
+  mutate(white_black_ratio = (enslaved_total + free_black)/white_total, white_enslaved_ratio = enslaved_total/white_total, white_black_ratio) # calculating ratio between pops
+```
+
+... and then we plot.
+```{r}
+population_total %>% 
+  filter(!is.na(total)) %>% #temp remove NA's for plotting purposes
+ggplot() +
+  geom_line(aes(x=year,y=total)) +
+  labs(title = "St. Croix population, 1758-1808",
+       subtitle = "Based on cadastre ledgers")
+
+ggsave("plots/population_1758-1808.pdf", height= 7, width = 10)
+```
+
+This is nice. But perhaps we should plot it with areas of missing data highlighted.
+```{r}
+ggplot(population_total) +
+  geom_line(aes(x=year,y=total)) +
+  geom_line(data = filter(population_total, !is.na(total)), aes(x=year,y=total), linetype = "dotted") +
+  labs(title = "St. Croix population, 1758-1808",
+       subtitle = "Based on cadastre ledgers") +
+  scale_y_continuous(name = "Total Population", breaks = seq(15000, 30000, by=2500)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+ggsave("plots/population_1758-1808_improved.pdf", height= 7, width = 10)
+```
+
+
+We can also plot it by group. First we need to pivot it longer. We will do this as part of the plotting.
+```{r}
+population_total %>% 
+  filter(!is.na(total)) %>% #temp remove NA's for plotting purposes
+  select(!total) %>% 
+  pivot_longer(cols = c(white_total, enslaved_total, free_black), 
+               names_to = "pop_group", 
+               values_to = "total") %>% 
+  ggplot() +
+  geom_area(aes(x=year,y=total, fill=pop_group)) +
+  labs(title = "St. Croix population, 1758-1808",
+       subtitle = "Based on cadastre ledgers",
+       fill = "Pop. Group") +
+  scale_fill_manual(values=c("#60b433", "#b44633", "#338fb4"))
+
+ggsave("plots/population_1758-1808_groups.pdf", height= 7, width = 10)
+```
+
+We could also do the same with just quadrants / towns and rural vs. urban areas.
+```{r}
+quadrant_data %>%
+  mutate(setting = ifelse(quadrant == "Christiansted"|quadrant == "Frederiksted", "urban", "rural")) %>%
+  group_by(year, setting) %>% 
+  summarise(total = sum(total, na.rm = TRUE)) %>% 
+  pivot_wider(names_from = setting, values_from = total, values_fill = list(total = 0)) %>%
+  ungroup() %>%
+  mutate(total = urban + rural) %>%
+  rename(urban_total = urban, rural_total = rural) %>% 
+  mutate(Urban = urban_total/total*100, Rural = rural_total/total*100) %>%
+  gather(Area, Percentage, Urban:Rural) %>%
+  ggplot(aes(x=year, y=Percentage, fill=Area)) + 
+  geom_area() +
+  labs(title = "Rural / Urban population distribution on St. Croix, 1758-1808",
+       subtitle = "Based on cadastre ledgers.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1), breaks = seq(0,100,by=10)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5))
+
+ggsave("plots/setting_distribution.pdf", height= 6, width = 10)
+```
+
+```{r}
+quadrant_data %>%
+  group_by(year) %>%
+  mutate(total_all = sum(total)) %>% 
+  mutate(total = total/total_all*100) %>%
+  ggplot(aes(x=year, y=total, fill=quadrant)) + 
+  geom_area() +
+  labs(title = "Quadrant population distribution on St. Croix, 1758-1808",
+       subtitle = "Based on cadastre ledgers.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1), breaks = seq(0,100,by=10)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5)) +
+  scale_fill_brewer(palette = "Paired")
+
+ggsave("plots/quadrant_distribution.pdf", height= 6, width = 10)
+```
+
+
+## Net population growth
+
+This is interesting. What if we plot it by pure growth pr. year.
+```{r}
+temp <- population_total %>% #temporary renaming columns to match that of the "population_total" dataframe
+  filter(!is.na(total)) %>% 
+  mutate(total_growth = total - lag(total))
+
+ggplot(temp) +
+  geom_col(aes(x=year,y=total_growth)) +
+  scale_y_continuous() + # Setting 2nd y-axis. Dividing by 5 to get original numbers.
+  scale_x_continuous(name="Year") +
+  labs(title = "Net Population Growth, St. Croix, 1758-1808",
+       subtitle = "Based on cadastre ledgers") +
+  scale_y_continuous(name = "Net Growth", breaks = seq(-2000, 4000, by=500)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+ggsave("plots/pop_net_growth.pdf", height= 6, width = 10)
+```
+
+This is fine, but not really that great at showing the growth rate pr. year. Let us plot both the total growth rate and the growthrate by group.
+```{r}
+temp <- quadrant_data %>% 
+  group_by(year) %>% 
+  summarise(total = sum(total), white_total = sum(white_total, na.rm = T), enslaved_total = sum(enslaved_total, na.rm = T), free_black = sum(free_black, na.rm = T)) %>% 
+  mutate(white_total = na_if(white_total, 0), enslaved_total = na_if(enslaved_total, 0), free_black = na_if(free_black, 0)) %>% 
+  mutate(total_growth_pct = (total - lag(total))/total*100, white_growth_pct = (white_total - lag(white_total))/white_total*100, enslaved_growth_pct = (enslaved_total - lag(enslaved_total))/enslaved_total*100, free_black_growth_pct = (free_black - lag(free_black))/free_black*100) %>% 
+    pivot_longer(cols = c(total_growth_pct, white_growth_pct, enslaved_growth_pct, free_black_growth_pct), 
+               names_to = "pop_group", 
+               values_to = "growth_rate")
+
+temp %>% 
+  filter(!(year == 1773 & pop_group == "free_black_growth_pct")) %>% # removing outlier (first year of freed blacks)
+ggplot() +
+  geom_line(aes(x=year,y=growth_rate, color = pop_group)) +
+  labs(title = "St. Croix population growth rate, 1758-1808",
+       subtitle = "Based on cadastre ledgers",
+       color = "Population group") +
+  scale_y_continuous(name = "Growth rate, per cent.") +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1)) +
+  scale_color_manual(values=c("#00BA38", "#F8766D", "#000000", "#619CFF"))
+
+ggsave("plots/pop_growth_rate.pdf", height= 6, width = 10)
+```
+
+
+
+## Growth by area
+
+What if we plot growth by area? We could do this two ways. The first is as a graph, while the other involves using our combined quadrants_data_sf dataframe from earlier. Let us plot them in that order.
+
+```{r}
+temp <- quadrant_data %>% 
+  select(year, quadrant, white_total, free_black, enslaved_total) %>% 
+  pivot_longer(cols = c(white_total, free_black, enslaved_total), 
+               names_to = "group", 
+               values_to = "total")
+
+ggplot(temp) +
+  geom_line(aes(year, total, color = group)) +
+  geom_line(data = filter(temp, !is.na(total)), aes(year, total, color = group), linetype = "dotted") +
+  theme_minimal() +
+  labs(
+    x = "Year", 
+    y = "Population", 
+    color = "Pop. group", 
+    title = "Population development by quadrant, 1758-1808") +
+  facet_wrap("quadrant")
+
+ggsave("plots/pop_growth_quadrant.pdf", height= 6, width = 10)
+```
+
+This is pretty cool. But it might be better to actually plot the data as a percentage change since 1758. 
+```{r}
+temp <- quadrant_data %>% 
+  group_by(quadrant) %>% 
+  mutate(white_total = (white_total-white_total[match(1758, year)])/white_total[match(1758, year)]*100,
+         free_black = (free_black-free_black[match(1772, year)])/free_black[match(1772, year)]*100,
+         enslaved_total = (enslaved_total-enslaved_total[match(1758, year)])/enslaved_total[match(1758, year)]*100) %>% 
+  ungroup() %>% 
+  select(year, quadrant, white_total, free_black, enslaved_total) %>% 
+  pivot_longer(cols = c(white_total, free_black, enslaved_total), 
+               names_to = "group", 
+               values_to = "total")
+
+ggplot(temp) +
+  geom_line(aes(year, total, color = group)) +
+  geom_line(data = filter(temp, !is.na(total)), aes(year, total, color = group), linetype = "dotted") +
+  theme_minimal() +
+  labs(
+    x = "Year", 
+    y = "Population", 
+    color = "Pop. group", 
+    title = "Population by quadrant as a percentage, 1758-1808", 
+    subtitle = "Growth relative to 1758 for white and enslaved and 1772 for free blacks.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1)) +
+  facet_wrap("quadrant")
+```
+
+This is both good and bad. It is better at showing relative growth, but the huge boost in the two major towns population, makes the graph hard to read. Let us plot urban and land areas by themselves.
+
+```{r}
+# LAND DISTRICTS
+temp <- quadrant_data %>% 
+  group_by(quadrant) %>% 
+  mutate(white_total = (white_total-white_total[match(1758, year)])/white_total[match(1758, year)]*100,
+         free_black = (free_black-free_black[match(1772, year)])/free_black[match(1772, year)]*100,
+         enslaved_total = (enslaved_total-enslaved_total[match(1758, year)])/enslaved_total[match(1758, year)]*100) %>%
+  ungroup() %>% 
+  select(year, quadrant, white_total, free_black, enslaved_total) %>%
+  filter(!(quadrant == "Christiansted"|quadrant == "Frederiksted")) %>% 
+  pivot_longer(cols = c(white_total, free_black, enslaved_total), 
+               names_to = "group", 
+               values_to = "total")
+
+ggplot(temp) +
+  geom_line(aes(year, total, color = group)) +
+  geom_line(data = filter(temp, !is.na(total)), aes(year, total, color = group), linetype = "dotted") +
+  theme_minimal() +
+  labs(
+    x = "Year", 
+    y = "Population", 
+    color = "Pop. group", 
+    title = "Population of land districts as a percentage, 1758-1808", 
+    subtitle = "Growth relative to 1758 for white and enslaved and 1772 for free blacks.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1)) +
+  facet_wrap("quadrant", scales = "free")
+
+ggsave("plots/pop_growth_land_quadrant.pdf", height= 6, width = 10)
+
+
+# URBAN AREAS
+temp <- quadrant_data %>% 
+  group_by(quadrant) %>% 
+  mutate(white_total = (white_total-white_total[match(1758, year)])/white_total[match(1758, year)]*100,
+         free_black = (free_black-free_black[match(1772, year)])/free_black[match(1772, year)]*100,
+         enslaved_total = (enslaved_total-enslaved_total[match(1758, year)])/enslaved_total[match(1758, year)]*100) %>% 
+  ungroup() %>% 
+  select(year, quadrant, white_total, free_black, enslaved_total) %>%
+  filter(quadrant == "Christiansted"|quadrant == "Frederiksted" ) %>% 
+  pivot_longer(cols = c(white_total, free_black, enslaved_total), 
+               names_to = "group", 
+               values_to = "total")
+
+ggplot(temp) +
+  geom_line(aes(year, total, color = group)) +
+  geom_line(data = filter(temp, !is.na(total)), aes(year, total, color = group), linetype = "dotted") +
+  theme_minimal() +
+  labs(
+    x = "Year", 
+    y = "Population", 
+    color = "Pop. group", 
+    title = "Population of urban areas as a percentage, 1758-1808", 
+    subtitle = "Growth relative to 1758 for white and enslaved and 1772 for free blacks.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1), breaks = seq(-1000,3000,by=500)) +
+  facet_wrap("quadrant")
+
+ggsave("plots/pop_growth_urban_areas.pdf", height= 6, width = 10)
+
+```
+
+
+For the actually mapping of the data, let us just plot 5 ten year intervals year and see how it looks.
+```{r}
+quadrant_data_sf %>% 
+  filter(year==1760|year==1770|year==1780|year==1790|year==1800) %>% 
+  ggplot()+
+  geom_sf(aes(fill = total)) +
+  facet_wrap(~ year) +
+  theme_void() +
+  labs(title = "St. Croix population, 1760-1800",
+       subtitle = "Based on cadastre ledgers",
+       fill = "Population") +
+    theme(plot.title = element_text(vjust=6), # Creating some slight space between the titles from the map.
+        plot.subtitle = element_text(vjust=6))
+
+ggsave("maps/population_decades_spatial_distribution.pdf", height= 6, width = 10)
+```
+
+While not bad. It is not easy to read. What if we calculated the percentage growth between decades and then plotted. Then we could very clearly see what areas grew / declined and by how much during this time.
+```{r}
+quadrant_data_sf %>% 
+  filter(year==1760|year==1770|year==1780|year==1790|year==1800) %>%
+  group_by(quadrant) %>% 
+  mutate(growth_total = total - lag(total),
+         growth_percentage = (total-lag(total))/lag(total)*100,
+         growth_percentage = replace_na(growth_percentage, 0)) %>%  # setting NA's to 0
+  ggplot()+
+  geom_sf(aes(fill = growth_percentage)) +
+  facet_wrap(~ year) +
+  theme_void() +
+  labs(title = "St. Croix population pct. growth, 1760-1800",
+       subtitle = "Based on cadastre ledgers",
+       fill = "Pct. change in population") +
+  theme(plot.title = element_text(vjust=6), # Creating some slight space between the titles from the map.
+        plot.subtitle = element_text(vjust=6))+
+  scale_fill_gradient2(low = "#F8766D", mid = "white", high = "#00BA38")
+
+ggsave("maps/population_decades_percent_spatial.pdf", height= 6, width = 10)
+```
+
+This is cool. Can we do something simailar for 1792-1803, to examine what areas were most heavily changed by the end of the slave trade.
+```{r}
+quadrant_data_sf %>% 
+  filter(year == 1792|year == 1803) %>%
+  group_by(quadrant) %>%
+  mutate(growth_total = total - lag(total),
+         growth_percentage = (total-lag(total))/lag(total)*100) %>% 
+  filter(year == 1803) %>% 
+  ggplot()+
+  geom_sf(aes(fill = growth_percentage)) +
+  facet_wrap(~ year) +
+  theme_void() +
+  labs(title = "St. Croix population pct. growth, 1792-1803",
+       subtitle = "Based on cadastre ledgers",
+       fill = "Pct. change in population") +
+  theme(plot.title = element_text(vjust=6), # Creating some slight space between the titles from the map.
+        plot.subtitle = element_text(vjust=6))+
+  scale_fill_gradient2(low = "#F8766D", mid = "white", high = "#00BA38")
+
+ggsave("maps/pop_growth_slave_trade_end_single.pdf", height= 6, width = 10)
+```
+
+Perhaps it would be better to look at it in absolute values.
+```{r}
+quadrant_data_sf %>% 
+  filter(year == 1792|year == 1803) %>%
+  group_by(quadrant) %>%
+  mutate(growth_total = total - lag(total)) %>%
+  filter(year == 1803) %>% 
+  ggplot()+
+  geom_sf(aes(fill = growth_total)) +
+  facet_wrap(~ year) +
+  theme_void() +
+  labs(title = "St. Croix population growth, 1792-1803",
+       subtitle = "Based on cadastre ledgers",
+       fill = "Population growth") +
+  theme(plot.title = element_text(vjust=6), # Creating some slight space between the titles from the map.
+        plot.subtitle = element_text(vjust=6))+
+  scale_fill_gradient2(low = "#F8766D", mid = "white", high = "#00BA38")
+
+ggsave("maps/abs_pop_growth_slave_trade_end_single.pdf", height= 6, width = 10)
+```
+
+
+Cool, but we should also do it for every year to see what that looks like. We will stick to absolute values.
+```{r}
+quadrant_data_sf %>% 
+  filter(year >= 1792) %>%
+  group_by(quadrant) %>% 
+  mutate(growth_total = total - lag(total),
+         growth_total = replace_na(growth_total, 0)) %>%  # setting NA's to 0
+  ggplot()+
+  geom_sf(aes(fill = growth_total)) +
+  facet_wrap(~ year) +
+  theme_void() +
+  labs(title = "St. Croix population pct. growth, 1792-1803",
+       subtitle = "Based on cadastre ledgers",
+       fill = "Pct. change in population") +
+  theme(plot.title = element_text(vjust=6), # Creating some slight space between the titles from the map.
+        plot.subtitle = element_text(vjust=6))+
+  scale_fill_gradient2(low = "#F8766D", mid = "white", high = "#00BA38")
+
+ggsave("maps/abs_pop_growth_slave_trade_end_all.pdf", height= 6, width = 10)
+```
+
+Perhaps we should also see what happens if we examine it by person/km^2
+```{r}
+temp <- quadrant_data_sf
+
+temp$size <- as.numeric(st_area(quadrant_data_sf$geometry)) #as.numeric is used to avoid st_area using units.
+
+temp <- temp %>% 
+  mutate(size = size / 1000000, # km^2 pr. acre (according to Daniel Hopkins)
+  total_pr_km = total/size)
+
+# Then we calculate the amount of people pr. square meter
+
+temp %>% 
+  filter(year == 1792|year == 1803) %>%
+  group_by(quadrant) %>% 
+  mutate(growth_total = total_pr_km - lag(total_pr_km),
+         growth_percentage = (total_pr_km-lag(total_pr_km))/lag(total_pr_km)*100, 
+         growth_total = replace_na(growth_total, 0), # setting NA's to 0
+         growth_percentage = replace_na(growth_percentage, 0))%>%   
+  filter(!(quadrant == "Christiansted"|quadrant == "Frederiksted"), year == 1803) %>% 
+  ggplot()+
+  geom_sf(aes(fill = growth_total)) +
+  facet_wrap(~ year) +
+  theme_void() +
+  labs(title = "St. Croix population growth, 1792-1803",
+       subtitle = "Based on cadastre ledgers",
+       fill = "Change in pop. density (person/km^2)") +
+  theme(plot.title = element_text(vjust=6), # Creating some slight space between the titles from the map.
+        plot.subtitle = element_text(vjust=6))+
+  scale_fill_gradient2(low = "#F8766D", mid = "white", high = "#00BA38")
+
+
+ggsave("maps/density_pop_growth_slave_trade_end.pdf", height= 6, width = 10)
+```
+
+Lastly we should examine the development between genders and age (if possible). Let us start with gender. 
+
+Due to how the data is structured, we can only actually acuraltly distingush between the two genders towards the latter part of 1700s. While white men and women were noted from the start, white children and servants were a combined group not divded until ca. 1780. Enslaved were furthermore not divded until 1790's either.
+
+The natural place to start would be with the years were we know the gender of all pops except freedmen.
+
+```{r}
+quadrant_data %>%
+  group_by(year) %>%
+  summarise(total_male = sum(total_male), total_female = sum(total_female), total = sum(total_male+total_female)) %>%
+  mutate(Male = total_male/total*100, Female = total_female/total*100) %>%
+  gather(Gender, Percentage, Male:Female) %>%
+  ggplot(aes(x=year, y=Percentage, fill=Gender)) + 
+  geom_area() +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  labs(title = "Gender distribution on St. Croix, 1793-1803",
+       subtitle = "Based on cadastre ledgers. Note: Gender of freedmen are unkown and not included.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1805,by=1))
+
+
+ggsave("plots/gender_distribution_all.pdf", height= 6, width = 10)
+# NOTE THAT THIS IS BASED ON POPS GENDER THAT WE KNOW. AS WE DON'T KNOW THE GENDER OG FREEDMEN, THIS ACTUAL GENDER DISTRIBUTION COULD BE A LITTLE DIFFERENT.
+```
+
+Let us also do this with whites and enslaved individually.
+
+```{r}
+#WHITE POP
+quadrant_data %>%
+  group_by(year) %>%
+  summarise(white_male = sum(white_male), white_female = sum(white_female), total = sum(white_total)) %>%
+  mutate(Male = white_male/total*100, Female = white_female/total*100) %>%
+  gather(Gender, Percentage, Male:Female) %>%
+  ggplot(aes(x=year, y=Percentage, fill=Gender)) + 
+  geom_area() +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  labs(title = "Gender distribution of the white population on St. Croix, 1772-1803",
+       subtitle = "Based on cadastre ledgers.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1805,by=2))
+
+ggsave("plots/gender_distribution_White.pdf", height= 6, width = 10)
+
+#ENSLAVED POP
+quadrant_data %>%
+  group_by(year) %>%
+  summarise(enslaved_male = sum(enslaved_male), enslaved_female = sum(enslaved_female), total = sum(enslaved_total)) %>%
+  mutate(Male = enslaved_male/total*100, Female = enslaved_female/total*100) %>%
+  gather(Gender, Percentage, Male:Female) %>%
+  ggplot(aes(x=year, y=Percentage, fill=Gender)) + 
+  geom_area() +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  labs(title = "Gender distribution of the enslaved population on St. Croix, 1793-1803",
+       subtitle = "Based on cadastre ledgers.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1805,by=1))
+
+ggsave("plots/gender_distribution_enslaved.pdf", height= 6, width = 10)
+```
+
+Interseting. I wonder if there are any major differences between rural and urban areas? Let us find out.
+```{r}
+# By area
+quadrant_data %>%
+  group_by(year) %>%
+  mutate(Male = total_male/(total_male+total_female)*100, Female = total_female/(total_male+total_female)*100) %>%
+  gather(Gender, Percentage, Male:Female) %>%
+  ggplot(aes(x=year, y=Percentage, fill=Gender)) + 
+  geom_area() +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  labs(title = "Gender distribution on St. Croix, 1793-1803",
+       subtitle = "Note: Gender of freedmen are unkown and therefore not included.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1805,by=2)) +
+  facet_wrap(~ quadrant)
+
+ggsave("plots/gender_distribution_quadrants.pdf", height= 6, width = 10)
+
+# By rural vs. urban
+quadrant_data %>%
+  mutate(setting = ifelse(quadrant == "Christiansted"|quadrant == "Frederiksted", "Urban", "Rural")) %>%
+  group_by(year, setting) %>%
+  summarise(total_male = sum(total_male, na.rm = TRUE), total_female = sum(total_female, na.rm = TRUE)) %>% 
+  mutate(Male = total_male/(total_male+total_female)*100, Female = total_female/(total_male+total_female)*100) %>%
+  gather(Gender, Percentage, Male:Female) %>% 
+  ggplot(aes(x=year, y=Percentage, fill=Gender)) + 
+  geom_area() +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  labs(title = "Gender distribution on St. Croix, 1793-1803",
+       subtitle = "Note: Gender of freedmen are unkown and therefore not included.") +
+  scale_y_continuous(labels = scales::percent_format(accuray=1, scale = 1)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1805,by=2)) +
+  facet_wrap(~ setting)
+
+ggsave("plots/gender_distribution_setting.pdf", height= 6, width = 10)
+```
+
+Next we can do the same with age distributions.
+
+## Growth compared with slave imports
+
+It would be interresting to see if there is a correlation between pop growth and the arrival of slave ships. To check this we can use data from slavevoyages.org
+
+Before we start we will first summarize how many slaves were imported by year
+```{r}
+slave_voyages_total <- slave_voyages %>% 
+  rename(year = `Year of arrival at port of disembarkation`) %>% 
+  group_by(year) %>%
+  summarise(total = sum(`Total disembarked`), voyages = n())
+
+slave_voyages_total <- slave_voyages_DWI %>%
+  rename(year = `Year of arrival at port of disembarkation`) %>% 
+  group_by(year) %>% 
+  summarise(total_DWI = sum(`Total disembarked`), voyages_DWI = n()) %>% 
+  left_join(slave_voyages_total)
+```
+
+Cool now we have a dataframe where we can easily compare the two. However we should also include some of the figures found in the original sources to examine if the data from slavevoyages.org are close to the sourcematerial.
+```{r}
+year <- c(1778, 1779, 1780, 1781, 1782, 1783, 1784, 1785, 1786, 1787)
+total_nhk <- c(261, 1453, 438, 1188, 0, 0, 732, 193, 521, 119)
+
+# Create a new data frame
+temp <- data.frame(
+  year = year,
+  total_nhk = total_nhk
+)
+
+slave_voyages_total <- left_join(slave_voyages_total, temp)
+```
+
+Now we can compare how close the numbers are.
+```{r}
+slave_voyages_total <- slave_voyages_total %>% 
+   mutate(DWI_accuracy = total_DWI / total_nhk, total_accuracy = total / total_nhk)
+```
+
+In some years close, in others, not so much. The solution would seem to combine the two dataframes, using archival source materiale when available, and slavevoyages.org when not.
+
+This is not without issues, as the years 1781-1783 have different numbers in the sources. This will use the numbers from "Fortegnelse over alle den Kgl. guineiske handels her paa St. Croix forhandelede cargaisoner negre" when possible and only using numbers from "Tabelle Slavehandlen paa de danske vestindiske øer betræffende" when there are missing years.
+
+```{r}
+year <- c(1778, 1779, 1779, 1779, 1779, 1780, 1781, 1781, 1782, 1783, 1783, 1784, 1784, 1784, 1785, 1786, 1786, 1787)
+total_nhk <- c(261, 276, 371, 427, 379, 438, 391, 797, 155, 132, 510, 147, 289, 296, 193, 115, 409, 119)
+`Vessel name` <- c("Christiansborg", "Fredensborg", "Rio Volta", "Acra", "Christiansborg", "Ningo", "Rio Volta", "Unknown", "Acra", "Christiansborg", "Fredensborg", "Gehr. Guldberg", "Gehr. Stampe", "Greve Schimmelmann", "Uppernavik", "Greve Bernstoff", "Christiansborg", "Ada")
+`Captain's name` <- c("Niels Westmarker", "Johan Terents", "Andreas Hammer", "Erich Asenius", "J. Hiorth", "Niels West Bohn", "Andreas Hammer", "Unknown", "S. A. Hammer", "J. Hiorth", "Johan Terents", "Niels Beck", "Holm", "Rasmus Boldt", "Walløe", "Schrøder", "Berg", "Isaac Higgins")
+
+# Create a new data frame
+temp <- data.frame(
+  year = year,
+  disembarked = total_nhk,
+  flag = "Denmark / Baltic",
+  source = "Negerhandelskommissionen"
+)
+
+slave_voyages_croix <- slave_voyages_DWI %>% 
+  rename(flag = `Flag of vessel`, year = `Year of arrival at port of disembarkation`, disembarked = `Total disembarked`) %>% 
+  mutate(source = "slavevoyages.org") %>% 
+  select(year, disembarked, flag, source)
+
+slave_voyages_croix <- rbind(slave_voyages_croix, temp) %>% 
+  filter(!(year >= 1778 & year <= 1787 &source == "slavevoyages.org"))
+
+# Just to make sure all years are present in the dataframe, even if no slaves were imported that year, we will use the following code.
+all_years <- data.frame(year = 1758:1808)
+
+# Use complete to ensure all years are present
+slave_voyages_croix <- slave_voyages_croix %>%
+  right_join(all_years, by = "year") %>%
+  arrange(year)
+
+```
+
+
+With all that done, we should now be able to plot and analyse the data.
+
+```{r}
+# First only to St. Croix
+ggplot(slave_voyages) +
+  geom_col(aes(x=`Year of arrival at port of disembarkation`,y=`Total disembarked`,
+                                     fill=`Flag of vessel`)) +
+  labs(title = "Arrival of slave ships to St. Croix , 1758-1808",
+       subtitle = "Based on data from slavevoyages.org",
+       fill = "Nationality of slave ship") +
+  scale_x_continuous(breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+
+# Then also with unspecified DWI slave voyages.
+ggplot(slave_voyages_DWI) +
+  geom_col(aes(x=`Year of arrival at port of disembarkation`,y=`Total disembarked`,
+                                     fill=`Flag of vessel`)) +
+  labs(title = "Arrival of slave ships to St. Croix and unspecifed DWI ports, 1758-1808",
+       subtitle = "Based on data from slavevoyages.org",
+       fill = "Nationality of slave ship") +
+  scale_x_continuous(breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+# Finally with the combined data.
+ggplot(slave_voyages_croix) +
+  geom_col(aes(x=year,y=disembarked,fill=flag)) +
+  labs(title = "Arrival of slave ships to St. Croix and unspecifed DWI ports, 1758-1808",
+       subtitle = "Based on data from slavevoyages.org",
+       fill = "Nationality of slave ship") +
+  scale_x_continuous(breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+```
+And if we overlay it on the population growth
+```{r}
+temp <- slave_voyages_croix %>% #temporarly renaming columns to match that of the "population_total" dataframe
+  rename(total = disembarked)
+
+population_total %>% 
+  filter(!is.na(total)) %>% #temp remove NA's for plotting purposes
+ggplot() +
+  geom_line(aes(x=year,y=total)) +
+  geom_col(data = temp, aes(x=year,y=total,
+                                     fill=flag)) +
+  labs(title = "Arrival of slave ships to St. Croix , 1758-1808",
+       subtitle = "Based on data from slavevoyages.org and Negerhandelskommissionen",
+       fill = "Nationality of slave ship") +
+  scale_x_continuous(breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+ggsave("plots/pop_growth_slavetrade.pdf", height= 6, width = 10)
+
+temp <- slave_voyages_DWI %>% #temporarly renaming columns to match that of the "population_total" dataframe
+  rename(total = `Total disembarked`) %>% 
+  rename(year = `Year of arrival at port of disembarkation`)
+
+population_total %>% 
+  filter(!is.na(total)) %>% #temp remove NA's for plotting purposes
+ggplot() +
+  geom_line(aes(x=year,y=total)) +
+  geom_col(data = temp, aes(x=year,y=total,
+                                     fill=`Flag of vessel`)) +
+  labs(title = "Influx of slaves to St. Croix and other unspecifed DWI ports, 1758-1808",
+       subtitle = "Based on data from slavevoyages.org",
+       fill = "Nationality of slave ship") +
+  scale_x_continuous(breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+ggsave("plots/pop_growth_DWI_slavetrade.pdf", height= 6, width = 10)
+```
+
+Hmmm that looks weird. While the slave ships definitely contributed to the growth in the last part of the period, it does not not match the growth at the start of the period.
+
+While the graph is good. It could be improved. It would be nice to be able to distinguish between shops to St. Croix and ships to unspecified DWI ports. It would also be interesting to have two y-axis.
+```{r}
+temp <- slave_voyages_croix %>% #temporarly renaming columns to match that of the "population_total" dataframe
+  rename(total = disembarked)
+
+ggplot(population_total) +
+  geom_line(aes(x=year,y=total)) + # Plotting all known data
+  geom_line(data = filter(population_total, !is.na(total)),aes(x=year,y=total), linetype="dotted") + # Plotting missing data as a dotted line
+  geom_col(data = temp, aes(x=year,y=total*5, # Plotting slave ship data. Multiplying by 5 to increase size of barplots.
+                                     fill=flag)) +
+  scale_y_continuous(name = "Total Population",
+                     breaks = seq(0,30000,by=5000),
+                     sec.axis = sec_axis(~./5, name="Nr. of Enslaved Imported", breaks = seq(0,6000,by=500))) + # Setting 2nd y-axis. Dividing by 5 to get original numbers.
+  scale_x_continuous(name="Year", breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1)) +
+  labs(title = "Influx of enslaves to St. Croix, 1758-1808",
+       subtitle = "Based on data from slavevoyages.org and Negerhandelskommissionen",
+       fill = "Nationality of slave ship")
+
+ggsave("plots/pop_growth_croix_slavetrade_improved.pdf", height= 6, width = 10)
+```
+
+Using this data we should also be able to calculate how much of the population growth might be explained by the slave trade.
+```{r}
+temp <- slave_voyages_croix %>% #temporary renaming columns to match that of the "population_total" dataframe
+  count(year, wt=disembarked) %>% 
+  left_join(population_total) %>%
+  filter(!is.na(total)) %>% 
+  mutate(total_growth = total - lag(total)) %>%
+  mutate(enslaved_growth = enslaved_total - lag(enslaved_total)) %>%
+  mutate(adjusted_growth = total_growth - n) %>% 
+  mutate(enslaved_adjusted_growth = enslaved_growth - n)
+
+ggplot(temp) +
+  geom_col(aes(x=year,y=adjusted_growth)) +
+  scale_x_continuous(name="Year") +
+  labs(title = "Can growth be attributed to slave imports alone?",
+       subtitle = "Growth calculated from total growth by year minus nr. of imported enslaved.") +
+  scale_y_continuous(name = "Growth", breaks = seq(-2000, 4000, by=1000)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+ggsave("plots/pop_growth_compared.pdf", height= 6, width = 10)
+
+# PROBLEM: TOTAL GROWTH SHOWS THE DIFFERENCE BETWEEN KNOWN DATA YEARS. HOWEVER, THE NUMBER OF SLAVES IMPORTED ARE ONLY FOR THAT SINGLE YEAR. MANY MORE SLAVES COULD HAVE BEEN IMPORTED IN THE TIME BETWEEN.
+```
+
+```{r}
+ggplot(temp) +
+  geom_col(aes(x=year,y=enslaved_adjusted_growth)) +
+  scale_x_continuous(name="Year") +
+  labs(title = "Can growth be attributed to slave imports alone?",
+       subtitle = "Growth calculated from enslaved growth by year minus nr. of imported enslaved.") +
+  scale_y_continuous(name = "Growth", breaks = seq(-2000, 4000, by=1000)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+
+ggsave("plots/pop_enslaved_growth_compared.pdf", height= 6, width = 10)
+```
+
+Positive numbers indicate growth beyond slave imports and negative numbers indicate that more slaves were imported than the population grew. What we can see from the plot is that generally far more slaves were imported than the population actually grew. However for a few select years the population growth far exeeded that the total amount of slaves imported.
+
+What would it look like if we overlayed the total amount of dead as it is seen in the cadastre ledgers? First we need to filter the data about the dead. Regretably it only began to be reported when tax incentives related to them were implemented.
+```{r}
+# Death totals by year
+dead_total <- quadrant_data %>% 
+  group_by(year) %>% 
+  summarise(enslaved_died = sum(enslaved_died), enslaved_died_male = sum(enslaved_died_male), enslaved_died_female = sum(enslaved_died_female))
+
+ggplot(temp) +
+  geom_col(aes(x=year,y=adjusted_growth)) +
+  geom_line(data = dead_total, aes(x=year,y=enslaved_died*-1), color = "red") +
+  scale_x_continuous(name="Year") +
+  labs(title = "Can growth be attributed to slave imports alone?",
+       subtitle = paste0("Growth calculated from total growth by year minus nr. of imported enslaved. +\nEnslaved deaths by year (in red)")) +
+  scale_y_continuous(name = "Growth", breaks = seq(-2000, 4000, by=1000)) +
+  scale_x_continuous(name = "Year", breaks = seq(1760,1800,by=5), minor_breaks = seq(1758,1808,by=1))
+```
+
+Could it be that the periode of stagnation was due to the danish slavers inability to supply the plantation system? Let us try to divide the periode into the three periods of growth and view the total amount of slaves imported.
+```{r}
+temp <- slave_voyages_croix %>% #temporary renaming columns to match that of the "population_total" dataframe
+  count(year, wt=disembarked) %>% 
+  left_join(population_total) %>%
+  filter(!is.na(total)) %>% 
+  mutate(black_growth = (enslaved_total+free_black) - lag(enslaved_total+free_black)) %>%
+  right_join(all_years, by = "year") %>%
+  arrange(year) %>% 
+  mutate(period = case_when(
+      year >= 1758 & year <= 1776 ~ "1758-1777",
+      year >= 1777 & year <= 1791 ~ "1777-1792",
+      year >= 1792 & year <= 1803 ~ "1792-1803",
+       TRUE ~ NA_character_)) %>% # This handles any years outside the specified periods
+  filter(!is.na(period)) %>%
+  group_by(period) %>% 
+  summarise(years = n_distinct(year),
+            black_growth = sum(black_growth, na.rm = T),
+            mean_black_growth = black_growth / years)
+
+slave_growth_comp <- slave_voyages_croix %>%
+  mutate(
+    period = case_when(
+      year >= 1758 & year <= 1776 ~ "1758-1777",
+      year >= 1777 & year <= 1791 ~ "1777-1792",
+      year >= 1792 & year <= 1803 ~ "1792-1803",
+       TRUE ~ NA_character_  # This handles any years outside the specified periods
+    )
+  ) %>%
+  filter(!is.na(period)) %>% 
+  group_by(period) %>% 
+  summarise(total_disembarked = sum(disembarked, na.rm = T),
+            years = n_distinct(year),
+            mean_disembarked = total_disembarked / years,
+            disembarked_danish = (sum(disembarked[flag == "Denmark / Baltic"], na.rm = T) / total_disembarked) * 100,
+            disembarked_british = (sum(disembarked[flag == "Great Britain"], na.rm = T) / total_disembarked) * 100,
+            disembarked_other = (sum(disembarked[flag != "Great Britain" & flag != "Denmark / Baltic"], na.rm = T) / total_disembarked) * 100)
+
+slave_growth_comp <- left_join(temp, slave_growth_comp)
+
+slave_growth_comp
+```
+
+
+# 1804 Census data
+## Slaves pr. cadastre
+Now we should be able to showcase how where the largest concentrations of enslaved are. To do this we need first to combine the number of residence by cadastre.
+
+### Total sum
+```{r}
+sum_cadastre <- cadastre_1800_combined %>% 
+  group_by(unique_id) %>% 
+  summarise(across(White_men:Tax_skilling), 
+            geometry = first(geometry))
+
+sum_cadastre <- sum_cadastre %>%
+  mutate(enslaved_sum = rowSums(across(Enslaved_capable_men:Enslaved_child_girls), na.rm = TRUE)) %>% 
+  mutate(white_sum = rowSums(across(starts_with("White")), na.rm = TRUE)) %>% 
+  mutate(total_sum = rowSums(across(White_men:Enslaved_child_girls), na.rm = TRUE)) %>%
+  mutate(capable_sum = rowSums(across(Enslaved_capable_men:Enslaved_child_boys), na.rm = TRUE)) %>%
+  mutate(incapable_sum = total_sum-capable_sum, na.rm = TRUE) %>%
+  mutate(across(ends_with("sum"), ~ replace(., . == 0, NA)))
+```
+
+To showcase all the summed data at the same time, we can use a facet-wrap. To do this we first need to format the data to a long format using "pivot_longer".
+
+```{r}
+# Pivoting longer
+sum_cadastre_long <- sum_cadastre %>%
+  pivot_longer(cols = c(enslaved_sum, white_sum, total_sum, capable_sum, incapable_sum), 
+               names_to = "sum_type", 
+               values_to = "sum_value")
+
+sum_cadastre_long <- st_as_sf(sum_cadastre_long) # we need to tell R that the data is still a shape file
+
+# Ploting the data
+ggplot(sum_cadastre_long) +
+  geom_sf(aes(fill = sum_value)) +
+  facet_wrap(~ sum_type) +
+  labs(title = "People pr. cadastre", fill = "Sum Value")+
+  theme(axis.text = element_blank())
+```
+
+### Pr. m^2
+Now we have the total amount of slaves pr. cadastre. It would be interesting to see the how many slaves there are pr. m^2.
+
+```{r}
+# First we calculate the size of the cadastre
+sum_cadastre_long$size <- as.numeric(sum_cadastre_long %>% #as.numeric is used to avoid st_area using units.
+  st_area())
+
+# Then we calculate the amount of people pr. square meter
+sum_cadastre_long <- sum_cadastre_long %>% 
+  mutate(sum_pr_sqrM = sum_value/size)
+
+sum_cadastre_long$sum_pr_sqrM <- sum_cadastre_long$sum_pr_sqrM %>%# round to a easier to read number
+  round(6)
+
+# Now we plot
+ggplot(sum_cadastre_long) +
+  geom_sf(aes(fill = sum_pr_sqrM)) +
+  facet_wrap(~ sum_type) +
+  labs(title = "Population density", fill = "total per sq m")+
+  theme(axis.text = element_blank())
+```
+
+Of course results of this quick calculation comes with a few notes. First and most important is that most of these cadastre did not constitute the whole plantation. Most of the empty cadastre would probably have been the cultivated fields where the enslaved would be put to work. An example of this is "Store Princessen" cadastre which both encapuslates the whole plantation.
+
+## Slaves and landuse pr. quadrant
+
+Let us have a quick look at the 1804 census data
+```{r}
+ggplot(census_1804_quadrants) + # Total amount of enslaved by quadrant
+  geom_sf(aes(fill = total)) +
+  labs(title = "Enslaved Population", fill = "Total")
+
+ggplot(census_1804_quadrants) + # Sugar cultivation by quadrant
+  geom_sf(aes(fill = field_sugar_cultivation)) +
+  labs(title = "Sugar cultivation", fill = "'Agre'")
+
+ggplot(census_1804_quadrants) + # Dead by quadrant
+  geom_sf(aes(fill = dead_total)) +
+  labs(title = "Enslaved Deaths", fill = "Deaths")
+```
+
+This is cool and all, but let us see how this changes if we take the size of the quadrants into account.
+
+```{r}
+census_1804_quadrants$size <- as.numeric(census_1804_quadrants %>% 
+  st_area())
+
+census_1804_quadrants %>%
+  mutate(total_per_sq_m = total / size) %>%
+  ggplot() +
+  geom_sf(aes(fill = total_per_sq_m))+
+  labs(title = "Enslaved Population", fill = "Total per sq m")
+
+census_1804_quadrants %>%
+  mutate(field_sugar_cultivation_per_sq_m = field_sugar_cultivation / size) %>%
+  ggplot() +
+  geom_sf(aes(fill = field_sugar_cultivation_per_sq_m))+
+  labs(title = "Sugar cultivation", fill = "'Agre' per sq m")
+
+census_1804_quadrants %>%
+  mutate(dead_total_per_sq_m = dead_total / size) %>%
+  ggplot() +
+  geom_sf(aes(fill = dead_total_per_sq_m))+
+  labs(title = "Enslaved Deaths", fill = "Deaths per sq m")
+```
+
+
+## Biggest slave owners
+
+As we have the owners of the different plantations, it could be interesting to see who is the largest owner of enslaved workers.
+
+First we calculate the sum totals of enslaved by person.
+```{r}
+# Calculate total different ledger columns
+sum_person <- cadastre_1800_combined %>% 
+  filter(!Household_members_with_enslaved) %>% # Filter out cases where Household_members_with_enslaved is not TRUE
+  group_by(Main_person) %>%
+  summarise(across(White_men:Tax_skilling, sum, na.rm = TRUE))
+
+#Calculate total amount of people pr. person
+sum_person <- sum_person%>%
+  mutate(enslaved_sum = rowSums(across(Enslaved_capable_men:Enslaved_child_girls), na.rm = TRUE)) %>% 
+  mutate(white_sum = rowSums(across(starts_with("White")), na.rm = TRUE)) %>% 
+  mutate(total_sum = rowSums(across(White_men:Enslaved_child_girls), na.rm = TRUE)) %>%
+  mutate(capable_sum = rowSums(across(Enslaved_capable_men:Enslaved_child_boys), na.rm = TRUE)) %>%
+  mutate(incapable_sum = total_sum-capable_sum, na.rm = TRUE) %>%
+  mutate(across(ends_with("sum"), ~ replace(., . == 0, NA)))
+```
+
+Now we can plot the top 5. slave owners on the island. Let us use a facet_wrap like earlier. To do this we need to pivot longer like earlier.
+
+```{r}
+# Pivoting longer
+sum_person_long <- sum_person %>%
+  pivot_longer(cols = c(enslaved_sum, white_sum, total_sum, capable_sum, incapable_sum), 
+               names_to = "sum_type", 
+               values_to = "sum_value")
+
+# Plotting the top 5 people across 5 different groups
+sum_person_long %>%
+    group_by(sum_type) %>%
+    top_n(5) %>%
+    ungroup %>%
+    mutate(sum_type = as.factor(sum_type),
+           Main_person = reorder_within(Main_person, sum_value, sum_type)) %>%
+    ggplot(aes(Main_person, sum_value)) +
+    geom_col(show.legend = FALSE) +
+    facet_wrap(~sum_type, scales = "free_y", ncol = 2) +
+    coord_flip() +
+    scale_x_reordered() +
+    scale_y_continuous(expand = c(0,0)) +
+    labs(title = "Largest slaveowners on St. Croix in 1800")
+```
+
+# 1792 Census data
+```{r}
+plantations_1792 <- plantations_1792 %>% #This needs to be done in QGIS later.
+  rename(plantation = Plantation) %>% 
+  rename(quadrant = Kvadrant) %>% 
+  rename(owner = Owner)
+
+plantations_1792_union <- plantations_1792 %>% 
+  group_by(plantation, owner) %>% 
+  summarise(geometry = st_union(geometry)) %>%
+  ungroup()
+
+plantations_1792_union <- plantations_1792_union %>% 
+  inner_join(census_1792, by = c("plantation", "owner"))
+```
+
+```{r}
+ggplot(plantations_1792_union) +
+  geom_sf(data=St_Croix)+
+  geom_sf(aes(fill=total))
+```
+Who are the largest slave owners?
+```{r}
+census_1792 %>%
+  count(owner, wt = total) %>%
+  arrange(desc(n)) %>% 
+  filter(!is.na(owner)) %>% 
+  top_n(10) %>% 
+    ggplot(aes(x = reorder(owner, n), y = n)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(title = "Largest slaveowners on St. Croix in 1792", x = "Slave owner", y = "Nr. enslaved")
+
+ggsave("plots/top_10_slaveowners.pdf")
+```
+Interesting, but what if we sort by family instead?
+```{r}
+census_1792 %>%
+  count(owner_surname, wt = total) %>%
+  arrange(desc(n)) %>% 
+  filter(!is.na(owner_surname)) %>% 
+  top_n(10) %>% 
+    ggplot(aes(x = reorder(owner_surname, n), y = n)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(title = "Largest slaveowning families on St. Croix in 1792", x = "Slave owner", y = "Nr. enslaved")
+
+ggsave("plots/top_10_slavefamilies.pdf")
+```
+
+How large of a percentage of the total enslaved population do these families own?
+```{r}
+census_1792 %>%
+  count(owner_surname, wt = total) %>%
+  arrange(desc(n)) %>% 
+  filter(!is.na(owner_surname)) %>% 
+  top_n(5) %>% 
+  select(n) %>% 
+  summarize(percentage = (sum(n)/census_1792_total$total[10]*100))
+
+census_1792 %>%
+  count(owner_surname, wt = total) %>%
+  arrange(desc(n)) %>% 
+  filter(!is.na(owner_surname)) %>% 
+  top_n(10) %>% 
+  select(n) %>% 
+  summarize(percentage = (sum(n)/census_1792_total$total[10]*100))
+```
+
+The 10 largest families (out of 92) own ca. 41% of the enslaved while the 5 largest families own the ca. 28%.
+
+But I wonder where the 5 largest families are situated. Let us just look at the top 5 families.
+```{r}
+top_5_slave_families_1792 <- census_1792 %>%
+  count(owner_surname, wt = total) %>%
+  arrange(desc(n)) %>% 
+  filter(!is.na(owner_surname)) %>% 
+  top_n(5)
+
+plantations_1792_union %>% 
+  filter(owner_surname %in% top_5_slave_families_1792$owner_surname) %>% 
+  ggplot() +
+  geom_sf(data=St_Croix)+
+  geom_sf(aes(fill=owner_surname))+
+  labs(title = "Distribution of 5 largest slaveowning families", subtitle = "Based on 1792 census", fill = "Familiy")
+
+ggsave("maps/top_5_slavefamilies_1792.pdf", height= 6, width = 10)
+```
+
+Using the nationality data from the unpublished masters thesis "Kolonialsamfundet på St. Croix i sidste halvdel af det 18. århundrede, med særligt henblik på aristokratiet blandt plantageejerne", we can also analyse where these owners came from and if they gathered together by nationality.
+
+First let us see the distribution of nationality by total amount of slaves.
+```{r}
+plantations_1792_union %>%
+  distinct(owner, .keep_all = T) %>%  # only keeps unique owners.
+  count(owner_nationality) %>%
+  arrange(desc(n)) %>% 
+    ggplot(aes(x = reorder(owner_nationality, n), y = n)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(title = "Owner count by nationality on St. Croix in 1792", x = "Nationality", y = "Nr. of owners")
+
+ggsave("plots/owner_nationality_count.pdf")
+```
+
+What if we plot them by total amount of slaves pr. nationality?
+```{r}
+plantations_1792_union %>%
+  count(owner_nationality, wt = total) %>%
+  arrange(desc(n)) %>% 
+    ggplot(aes(x = reorder(owner_nationality, n), y = n)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(title = "Total amount of slaves owned by Nationality on St. Croix in 1792", x = "Nationality", y = "Nr. enslaved")
+
+ggsave("plots/owner_nationality_slave_total.pdf")
+```
+
+Then we can see the distribution spatially.
+```{r}
+plantations_1792_union %>% 
+  filter(!is.na(owner_nationality)) %>% 
+  ggplot() +
+  geom_sf(data=St_Croix)+
+  geom_sf(aes(fill=owner_nationality))+
+  labs(title = "Distribution of slaveowner nationality", subtitle = "Based on 1792 census", fill = "Familiy")
+
+ggsave("maps/nationality_slavefamilies_1792.pdf", height= 6, width = 10)
+```
+
+
+# Age distribution
+## In 1804
+Let us examine the age distribution of curcian slaves. First we need to pick out the relevant data and change it into a long format.
+```{r}
+age_data_1804 <- census_1804 %>% 
+  select(quadrant, plantation, starts_with("age_"))
+```
+
+Now we need to pivot our data to a long format.
+```{r}
+age_data_1804_long <- pivot_longer(age_data_1804, 
+                          cols = starts_with("age_"),  # Selects columns starting with "age_"
+                          names_to = c("gender", "age_group"),  # Separates the column names into gender and age group
+                          names_pattern = "age_(male|female)_(.*)",  # Regex pattern to capture gender and age group
+                          values_to = "count")
+
+#To make things work later, we need to make our age group a factor
+age_order <- c("under_5", "5_to_10", "10_to_20", "20_to_30", "30_40", "40_50", "50_60", "over_60")
+
+# Convert age_group to a factor with the specified order
+age_data_1804_long$age_group <- factor(age_data_1804_long$age_group, levels = age_order)
+```
+
+This then brings us to creating a population pyramid
+```{r}
+ggplot(age_data_1804_long, aes(x = age_group, fill = gender, y = ifelse(gender == "male",-count,count))) + 
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = abs, limits = max(age_data_1804_long$count) * c(-1,1)) +
+  coord_flip() + 
+  theme_minimal() +
+  labs(
+    x = "Age", 
+    y = "Population", 
+    fill = "Gender", 
+    title = "Population Pyramid of St. Croix' enslaved population, 1804")
+
+ggsave("plots/pop_pyramid_1804.pdf")
+```
+Interesting. We can see that the population is nowhere near a "normal" population pyramid. The enslaved population is mainly adults, clearly indicating that the fact that most of the population was probably enslaved and sold to the plantations by African slavers.
+
+Another interesting observation is that there the populations is not nearly as lobsided towards the male half as first expected. According to the statistiscs from "vore gamle tropekolonier" page 253, slave ships trading in the periode 1778-1787 usually had more men than women at a factor of 1.5 - 2. This could indicate that male slaves had a much higher mortality than women that was offset by importing.
+
+Let us examine the same pyramids by quadrant
+```{r}
+ggplot(age_data_1804_long, aes(x = age_group, fill = gender, y = ifelse(gender == "male",-count,count))) + 
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = abs, limits = max(age_data_1804_long$count) * c(-1,1)) +
+  coord_flip() + 
+  theme_minimal() +
+  labs(
+    x = "Age", 
+    y = "Population", 
+    fill = "Gender", 
+    title = "Population Pyramid of St. Croix' enslaved population") +
+  facet_wrap("quadrant", scales = "free_x")
+```
+
+# Death distribution
+## In 1804
+Let us also examine the distribution of deaths of 1804. The general pibeline will be the same as above, with the difference being how it is plotted in the end.
+```{r}
+death_data_1804 <- census_1804 %>% 
+  select(quadrant, plantation, starts_with("dead_")) %>% 
+  select(!dead_total)
+```
+
+Now we need to pivot our data to a long format.
+```{r}
+death_data_1804_long <- pivot_longer(death_data_1804, 
+                          cols = starts_with("dead_"),  # Selects columns starting with "age_"
+                          names_to = c("gender", "age_group"),  # Separates the column names into gender and age group
+                          names_pattern = "dead_(male|female)_(.*)",  # Regex pattern to capture gender and age group
+                          values_to = "count")
+
+death_data_1804_long$count[is.na(death_data_1804_long$count)] <- 0 # setting NA's to 0
+
+#To make things work later, we need to make our age group a factor
+death_order <- c("stillborn", "under_1", "1_to_5", "5_to_10", "10_to_20", "20_to_30", "over_30")
+
+# Convert age_group to a factor with the specified order
+death_data_1804_long$age_group <- factor(death_data_1804_long$age_group, levels = death_order)
+```
+
+Now we should be able to plot total deaths by age group. First we group by gender and group, then summarise before plotting.
+```{r}
+death_data_1804_long %>% 
+  group_by(age_group, gender) %>% 
+  summarise(total_deaths = sum(count)) %>% 
+ggplot() +
+  geom_line(aes(age_group, total_deaths, color = gender, group = gender)) +
+  theme_minimal() +
+  labs(
+    x = "Age", 
+    y = "Number of dead", 
+    fill = "Gender", 
+    title = "Deaths by age of St. Croix' enslaved population in 1804")
+```
+
+Let us see if it is any different by quadrant. The general workflow is in large part the same.
+```{r}
+death_data_1804_long %>% 
+  group_by(age_group, gender, quadrant) %>% 
+  summarise(total_deaths = sum(count)) %>% 
+ggplot() +
+  geom_line(aes(age_group, total_deaths, color = gender, group = gender)) +
+  theme_minimal() +
+  labs(
+    x = "Age", 
+    y = "Number of dead", 
+    fill = "Gender", 
+    title = "Deaths by age of St. Croix' enslaved population in 1804") +
+  facet_wrap("quadrant")
+```
+
+All quadrants show the same trend of early childhood and later adult life are the most deadly. While it is hard to say exactly when people die as "over 30" is a very broad group, the fact that mortality is low between the ages of 5-20 indicate both that younger slaves either did not work, had light work, or that they had not yet worn out by decades of grueling labor. Using this data, it is however hard to estimate if some quadrants were more brutal than others. Let us examine this next.
+
+First we format the data
+```{r}
+death_data_norm_1804 <- census_1804 %>% 
+  select(quadrant, plantation, starts_with("dead_"), total) %>% 
+  select(!dead_total)
+
+death_data_norm_1804_long <- pivot_longer(death_data_norm_1804, 
+                          cols = starts_with("dead_"),  # Selects columns starting with "age_"
+                          names_to = c("gender", "age_group"),  # Separates the column names into gender and age group
+                          names_pattern = "dead_(male|female)_(.*)",  # Regex pattern to capture gender and age group
+                          values_to = "count")
+
+death_data_norm_1804_long$count[is.na(death_data_norm_1804_long$count)] <- 0 # setting NA's to 0
+death_data_norm_1804_long$total[is.na(death_data_norm_1804_long$total)] <- 0 # setting NA's to 0
+
+```
+
+Now we can normalise it.
+```{r}
+total_population <- death_data_norm_1804_long %>%
+  group_by(quadrant) %>%
+  summarise(total_population = sum(total))
+
+# Merge the total population data with the death data
+death_data_norm_1804_long <- merge(death_data_norm_1804_long, total_population, by = "quadrant")
+
+death_data_norm_1804_long <- death_data_norm_1804_long %>% 
+  group_by(age_group, gender, quadrant, total_population) %>% 
+  summarise(total_deaths = sum(count))
+
+# Calculate normalized death counts
+death_data_normalised_1804_long <- death_data_norm_1804_long %>% 
+  mutate(deaths_norm = total_deaths/total_population)
+
+# Convert age_group to a factor with the specified order
+death_data_normalised_1804_long$age_group <- factor(death_data_normalised_1804_long$age_group, levels = death_order)
+```
+
+Now we can plot it
+```{r}
+ggplot(death_data_normalised_1804_long) +
+  geom_line(aes(age_group, deaths_norm, color = gender, group = gender)) +
+  theme_minimal() +
+  labs(
+    x = "Age", 
+    y = "Number of dead", 
+    fill = "Gender", 
+    title = "Deaths by age of St. Croix' enslaved population in 1804", subtitle = "As a percent of total quadrant population") +
+  facet_wrap("quadrant") +
+  theme(axis.text.x = element_text(angle = 90, hjust = -.01))
+
+ggsave("plots/pop_deaths_quadrants_1804_norm.pdf")
+```
+
+It is hard to claim that there are some quadrants that are more brutal than others, but it is interesting to note that both Oost_Ende_B and West_Ende seem to have a lower than average mortality.
+
+This is also a bit hard to read. Let us try plotting the same thing, but as deaths pr. 1000. The procedure is the same as above with slight modifications.
+```{r}
+# Calculate normalized death counts
+death_data_normalised2_1804_long <- death_data_norm_1804_long %>% 
+  mutate(deaths_norm = (total_deaths/total_population)*1000)
+
+# Convert age_group to a factor with the specified order
+death_data_normalised2_1804_long$age_group <- factor(death_data_normalised2_1804_long$age_group, levels = death_order)
+```
+
+Now we can plot it
+```{r plotting death}
+ggplot(death_data_normalised2_1804_long) +
+  geom_line(aes(age_group, deaths_norm, color = gender, group = gender)) +
+  theme_minimal() +
+  labs(
+    x = "Age", 
+    y = "Number of dead pr. 1000", 
+    fill = "Gender", 
+    title = "Deaths by age of St. Croix' enslaved population in 1804") +
+  facet_wrap("quadrant")
+```
+
+And what if it was just pr. quadrant and not by age.
+```{r}
+death_data_normalised3_1804_long <- death_data_normalised2_1804_long %>%
+  select(!age_group, !deaths_norm) %>% 
+  group_by(gender, quadrant, total_population) %>% 
+  summarise(total_deaths = sum(total_deaths))
+
+death_data_normalised3_1804_long <- death_data_normalised3_1804_long %>% 
+  mutate(deaths_norm = (total_deaths/total_population)*1000)
+```
+
+```{r}
+ggplot(death_data_normalised3_1804_long) +
+  geom_col(aes(quadrant, deaths_norm, fill = gender)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=45, hjust = .85)) +
+  labs(
+    x = "Age", 
+    y = "Number of dead pr. 1000", 
+    fill = "Gender", 
+    title = "Deaths by gender of St. Croix' enslaved population in 1804")
+
+ggsave("plots/pop_deaths_quadrants_1804.pdf")
+```
+
+## 1780-1808
+The information we have from 1804 is very detailed and great to work with. However, it is only a snapshot. What happens when we use the data from 1780-1808. The reason we don't expand the timespan, is that it was only in this period that slaves that died during the year were considered tax-free, and thereby valuable information in the eyes of the tax rolls / cadastre ledgers.
+
+```{r}
+quadrant_data %>% 
+  filter(year >= 1780) %>%
+  filter(!is.na(year)) %>%
+  group_by(year) %>% 
+  summarise(enslaved_died = sum(enslaved_died)) %>% 
+ggplot() +
+  geom_line(aes(x = year, y = enslaved_died)) +
+  labs(title = "Enslaved deaths on St. Croix, 1780-1808", subtitle = "Based on cadastre ledgers")
+
+ggsave("plots/pop_deaths_1780_1808.pdf")
+```
+
+
+From 1793 we can also devide it the deaths by gender.
+```{r}
+quadrant_data %>% 
+  filter(year >= 1793) %>%
+  filter(!is.na(year)) %>%
+  group_by(year) %>% 
+  summarise(enslaved_died_male = sum(enslaved_died_male), enslaved_died_female = sum(enslaved_died_female, na.rm=TRUE)) %>% 
+  pivot_longer(cols = c(enslaved_died_male, enslaved_died_female), 
+               names_to = "gender", 
+               values_to = "total") %>% 
+ggplot() +
+  geom_line(aes(x = year, y = total, color = gender)) +
+  scale_x_continuous(breaks = 1793:1808) +
+  labs(title = "Enslaved deaths on St. Croix, 1793-1808", subtitle = "Split by gender", color = "Gender")
+
+ggsave("plots/pop_deaths_gender_1793_1808.pdf")
+```
+
+It would also be interesting to see how this compares to births during the same time. Of course we must keep in mind that neither the births column nor the deaths column in all likely hooded noted stillborn deaths. 
+```{r}
+quadrant_data %>% 
+  filter(year >= 1780) %>%
+  filter(!is.na(enslaved_died)) %>% 
+  group_by(year) %>% 
+  summarise(enslaved_died = sum(enslaved_died, na.rm=TRUE), enslaved_born = sum(enslaved_born, na.rm=TRUE)) %>% 
+  pivot_longer(cols = c(enslaved_died, enslaved_born), 
+               names_to = "type", 
+               values_to = "total") %>% 
+ggplot() +
+  geom_line(aes(x = year, y = total, color = type)) +
+  labs(title = "Enslaved deaths vs. births on St. Croix, 1780-1808", subtitle = "Based on cadastre ledgers")
+
+ggsave("plots/pop_death_v_birth_1780_1808.pdf", height= 5, width = 8)
+```
+
+
+# Spatial distribution of objects and population
+It would be interesting to see where different buildings are located on the island. This could potentially be used later to check if there is a correlation between buildings and productivity. To do this we use the eks library for this purpose. The next few lines of code are heavily based on this tutorial: https://cran.r-project.org/web/packages/eks/vignettes/tidysf_kde.html 
+
+As we want to compare the two different types of mills, it would be great to do it as a facet_wrap. Let us first prepare our data.
+```{r}
+windmills_oxholm_1799$Type <- "Windmill" # Assigning type column
+horsemills_oxholm_1799$Type <- "Animal mill" # Assigning type column
+```
+
+Then we join and group it
+```{r}
+mills_1799 <- rbind(windmills_oxholm_1799, horsemills_oxholm_1799) # Combining sf objects
+mills_1799 <- mills_1799 %>% # This is important so the st_kde function calculates two different sets of kernel density.
+  group_by(Type) 
+```
+
+Now we should be able to do our kernel density calculations.
+```{r}
+ mills_1799_kde <- st_kde(mills_1799) # Calculating kernel density
+# mills_1799_kde$sf <- st_intersection(St_Croix, mills_1799_kde$sf) # Cropping kernel sf to St. Croix. !Breaks one of the two plots!
+```
+
+And finally we can plot it.
+```{r}
+# Plotting!
+ggplot(mills_1799_kde) +
+  geom_sf(data = St_Croix, fill="white") + # St. Croix
+  geom_sf(data=st_get_contour(mills_1799_kde), aes(fill=label_percent(contlabel))) + # Density contours
+  scale_fill_discrete_sequential(h1=275) + # Cool colors
+  facet_wrap(~Type) + # Facet wrapping to create two different maps
+  labs(title="Distribution of animal and windmills on St. Croix",
+       subtitle = "According to Oxholms 1799 cadastre map",
+       fill="Density") +
+  theme_void() +
+  theme(plot.title = element_text(vjust=3), # Creating some slight space between the titles from the map.
+        plot.subtitle = element_text(vjust=3))
+
+ggsave("maps/buildings_spatial_distribution.pdf", height= 6, width = 10)
+```
+
+# Correlation between estate size / crop and enslaved.
+When examining the plantations of St. Croix, the question of correlation between estates and the amount of enslaved is always present. Is there a correlation between the amount or type of enslaved and the sizes or main cultivated crop of the plantations. This should be something we can examine using the 1792 census. 
+
+First thing we must do is create a filtered dataframe with only the relevant data. For the purpose of this analysis we will use "quadrant", fieldworkers (total + by gender), houseworkers (total + by gender), artisans, "creole", "african", "total" and acre.
+
+```{r}
+cor_census_1792 <- census_1792 %>% 
+  select(quadrant, starts_with("field"), starts_with("house"), artisan_worker, creole, african, total, starts_with("acre")) %>% 
+  mutate(field_worker_total = field_worker_incapable+field_worker_female_child+field_worker_male_child+ field_worker_female_teen+field_worker_male_teen+field_worker_female_adult+field_worker_male_adult,
+         field_worker_male = field_worker_male_child+field_worker_male_teen+field_worker_male_adult,
+         field_worker_female = field_worker_female_child+field_worker_female_teen+field_worker_female_adult,
+         house_worker_total = house_worker_male+house_worker_female) %>% 
+  select(!(field_worker_male_adult:field_worker_female_child))
+```
+
+Now we have our filtered data. Before we can do our correlation calculations, we first need to convert our data on enslaved to be divided by the size of the estate. We do this because we do no care about the absolute value of enslaved to size or crop. We know that larger estate have more slaves, but we want to know how much size affects the enslaved population. 
+
+As all size figures currently use "acres" we also need to convert these to km^2 for ease of understanding. According to Daniel Hopkins in his work "The Eighteenth-Century Invention of a Measure in the Caribbean: The Danish Acre of St Croix." an acre is equavilent to .405 hectars or 0.00405km^2.
+```{r}
+# Converting to square meters
+cor_census_1792 <- cor_census_1792 %>% 
+  mutate(sugar_size = acre_sugar*0.00405,
+         provision_size = acre_provision*0.00405,
+         fallow_size = acre_fallow*0.00405,
+         woodland_size = acre_woodland*0.00405,
+         cotton_size = acre_cotton*0.00405,
+         enslaved_prov_size = acre_for_enslaved*0.00405,
+         total_size = acre_total*0.00405) %>% 
+  select(!(acre_sugar:acre_total))
+```
+
+With that out of the way we can calculate enslaved_pr_m2. We will do this simply by dividing the enslaved by m^2. Furthermore, we will also divide the estates area use by total size. That way we will get an idea of how large a percentage each estates commit to each area.
+
+Lastly we will also set any NA's to 0 for correlation calculation purposes.
+```{r}
+cor_census_1792 <- cor_census_1792 %>% 
+  mutate(across(2:12, ~ . / total_size),
+         across(13:18, ~ . / total_size)) %>% 
+  mutate(across(everything(), ~ replace_na(., 0))) # setting NA's to 0
+```
+
+The last parts before we can do our correlation scheme, is to convert our quadrants names to a numeric so they can be used for correation calculations.
+```{r}
+cor_census_1792 <- cor_census_1792 %>%
+  select(!quadrant) # Remove this line if possible later.
+
+cor_census_1792_calc <- cor(cor_census_1792)
+```
+
+Now we can plot it...
+```{r}
+corrplot(cor_census_1792_calc, type="upper", method="color", title="Correlation between enslaved and estate (size and crop), census 1792", tl.cex = .75)
+```
+
+... and save it
+```{r}
+pdf(file = "plots/1792_corrplot.pdf")
+
+corrplot(cor_census_1792_calc, type="upper", method="color", title="Correlation between enslaved and estate (size and crop), census 1792", tl.cex = .75)
+```
+
+We can also use the previous matrix before we calculated the correlations, to plot how size affects density of enslaved.
+
+```{r}
+cor_census_1792 %>%
+  filter(!(total >= 300)) %>% # remove outliers
+ggplot()+
+  geom_point(aes(x = total_size, y = total)) +
+  geom_smooth(aes(x = total_size, y = total), color = "red", se=F) +
+  scale_y_continuous(name = bquote('Enslaved pr.'~km^2), breaks = seq(0,1000,by=25)) +
+  scale_x_continuous(name = bquote('Estate size'~(km^2)), breaks = seq(0,5,by=.5)) +
+  labs(title = "Correlation between plantation area and density of enslaved",
+       subtitle="Based on 1792 census")
+
+ggsave("plots/cor_plantation_size_enslaved_density.pdf", height= 6, width = 10)
+```
+
+
+
+# Productivity
+A key part of this analysis is figuring out what plantations were more productive than others, and what factors could be attributed to their increased productivity. Were more brutal plantations more productive? Were they simply situated in a better location, and if so, what characterized a "good" location? The following analysis will mainly focus on sugar, as it was the most profitable and widespread crop on the island.
+
+The first thing that might be interesting to look at is both what the largest plantations are based on sugar harvest sizes (measured in casks of sugar).
+```{r}
+hist(census_1792$avg_harvest_sugar, xlab = "Avg. Casks of Sugar", main = "Histogram of Average Sugar Harvest in 1785-1792")
+```
+
+While interesting, this does not take the amount of sugar planted. Let us quickly calculate this and run the rerun the histogram.
+```{r}
+census_1792 <- census_1792 %>% 
+  mutate(harvest_sugar_pr_acre = avg_harvest_sugar/acre_sugar)
+
+hist(census_1792$harvest_sugar_pr_acre, xlab = "Avg. Casks of Sugar pr. acre", main = "Histogram of Average Sugar Harvest in 1785-1792")
+```
+
+Are the largest slave owning families or planters also the most productive planters? 
+```{r}
+census_1792 %>% 
+  group_by(owner_surname) %>% 
+  summarize(mean_harvest_sugar_pr_acre = mean(harvest_sugar_pr_acre, na.rm = TRUE)) %>% 
+  top_n(mean_harvest_sugar_pr_acre, n = 10) %>% 
+  arrange(desc(mean_harvest_sugar_pr_acre))
+
+census_1792 %>% 
+  group_by(owner) %>% 
+  summarize(mean_harvest_sugar_pr_acre = mean(harvest_sugar_pr_acre, na.rm = TRUE)) %>% 
+  top_n(mean_harvest_sugar_pr_acre, n = 10) %>% 
+  arrange(desc(mean_harvest_sugar_pr_acre))
+
+4000/3
+6000/5
+
+5000/1200
+```
+
+
+First things first however: what constitutes a productive plantation. I am here choosing to see it from the eyes of the planters that owned them. A productive farm would in that case be the most profitable (from having the highest yield pr. square meter) using the fewest amount of enslaved workers. Viewing it this way does of course not take long term sustainability into account. As we only have reliable data about the average for each plantation from a single source, we regrettably cannot examine this element of plantation management. However, as it was not uncommon for owners to view their Caribbean plantations as a way to turn a quick profit before selling them, it is not an historically improper way of calculating productivity.
+
+One common way of calculating productivity is:
+$\frac{Harvest\:m^{2}}{Planted\:m^{2}}\times Expected\:Yield\:pr.\:m^{2} = Adjusted\:Yield\:pr.\:m^{2}$
+
+As we only know the planted area and not the harvested area, we need to make some slight estimations. We estimate that 10% of a plantations harvest is lost during the growing and harvesting season. The expected yield pr. acre is calculated from Oxholms 1797 article *De Danske Vestindiske øers Tilstand i Henseende til Population, Cultur og Finance-Forfatning, i Anledning af nogle Breve fra St. Croix, indrykkede i det politiske og physiske Magazin for Marts og April Maaneder 1797, hvortil er føiet Beskrivelse om Sukkerets Fabrikation*. Oxholm estimates that around XXXX
+
+It should be noted that the yield is not describing the sugar cane harvested, but rather the sugar after its has gone through its initial processing stage and has been turned into *råsukker*. 
+
+
+The analysis above does not take costs into account. Let us do that now.
+
+
+
+
